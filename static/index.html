@@ -1,0 +1,63 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PM2.5 Forecast & Health Risk</title>
+<style>
+:root{--bg:#f4f7fb;--card:#fff;--ink:#1b2a41;--mut:#6b7a90;--pri:#2563eb;--bd:#e3e9f2}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1624;--card:#182136;--ink:#e8eef9;--mut:#93a1b8;--bd:#26324b}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:linear-gradient(135deg,#2563eb,#0ea5a4);color:#fff;padding:32px 20px;text-align:center}
+header h1{margin:0 0 6px;font-size:26px}header p{margin:0;opacity:.9}
+main{max-width:860px;margin:-20px auto 40px;padding:0 16px;display:grid;gap:16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:20px;box-shadow:0 2px 8px #0001}
+.card h2{margin:0 0 12px;font-size:17px;display:flex;gap:10px;align-items:center}
+.n{background:var(--pri);color:#fff;border-radius:50%;width:26px;height:26px;display:grid;place-items:center;font-size:13px}
+button,.btn{background:var(--pri);color:#fff;border:0;border-radius:9px;padding:9px 16px;font-size:14px;cursor:pointer;text-decoration:none;display:inline-block}
+button:disabled{opacity:.5}input[type=number]{width:80px;padding:7px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--ink)}
+.drop{border:2px dashed var(--bd);border-radius:12px;padding:26px;text-align:center;color:var(--mut);cursor:pointer}
+.drop.on{border-color:var(--pri);background:#2563eb10}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}th,td{padding:8px;border-bottom:1px solid var(--bd);text-align:left}
+.bar{height:8px;background:var(--bd);border-radius:6px;overflow:hidden;margin-top:12px}.bar i{display:block;height:100%;width:0;background:var(--pri);transition:.3s}
+.kv{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.kv div{background:var(--bg);padding:8px 12px;border-radius:9px}.kv b{display:block;font-size:17px}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;color:#fff;font-size:12.5px}
+.l0{background:#16a34a}.l1{background:#65a30d}.l2{background:#f59e0b}.l3{background:#dc2626}
+.msg{border-left:4px solid var(--pri);background:var(--bg);padding:10px 14px;border-radius:0 9px 9px 0;margin-top:10px;font-size:13.5px;line-height:1.5}
+.err{color:#dc2626;margin-top:10px}.mut{color:var(--mut)}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+</style></head><body>
+<header><h1>🌫️ PM2.5 Forecast & Health Risk</h1><p>LSTM forecasts with 95% intervals, air-quality classes and hospitalisation risk</p></header>
+<main>
+<section class="card"><h2><span class="n">1</span>Upload your Excel file</h2>
+<div class="drop" id="drop">Drop an <b>.xlsx</b> here or click to browse<br><small>Columns required: Date, PM2.5</small></div>
+<input type="file" id="file" accept=".xlsx,.xls" hidden><div id="up"></div></section>
+<section class="card"><h2><span class="n">2</span>Model</h2>
+<div class="row">Epochs <input type="number" id="ep" value="150" min="5"> Look-back <input type="number" id="lb" value="30" min="7">
+<button id="train">Train LSTM</button></div><div class="bar"><i id="pb"></i></div><div id="ms" class="mut" style="margin-top:8px"></div></section>
+<section class="card"><h2><span class="n">3</span>Predictions</h2><button id="b3">Forecast next 2 days</button><div id="pr"></div></section>
+<section class="card"><h2><span class="n">4</span>Classification</h2><div class="row"><button id="b4">Classify</button><a class="btn" href="/api/export/forecast" style="background:#0ea5a4">⬇ Predictions + classification (Excel)</a></div><div id="cl"></div></section>
+<section class="card"><h2><span class="n">5</span>Risk & messages</h2><div class="row"><button id="b5">Calculate risk</button>
+<a class="btn" href="/api/export/risk" style="background:#0ea5a4">⬇ Risk & messages (Excel)</a><a class="btn" href="/api/export/messages" style="background:#0ea5a4">⬇ Messages (.txt)</a><a class="btn" href="/api/export" style="background:#64748b">⬇ Full report</a><a class="mut" href="/docs">API docs</a><span class="mut">v1.3</span></div><div id="rk"></div></section>
+</main>
+<script>
+const $=s=>document.querySelector(s),f1=x=>(+x).toFixed(1);
+async function api(p,o){const r=await fetch(p,o);const j=await r.json();if(!r.ok)throw new Error(j.detail||r.statusText);return j}
+const err=(el,e)=>$(el).innerHTML=`<div class="err">⚠ ${e.message}</div>`;
+const badge=(l,t)=>l==null?'–':`<span class="badge l${l}">${t}</span>`;
+const drop=$('#drop');drop.onclick=()=>$('#file').click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('on')};drop.ondragleave=()=>drop.classList.remove('on');
+drop.ondrop=e=>{e.preventDefault();up(e.dataTransfer.files[0])};$('#file').onchange=e=>up(e.target.files[0]);
+async function up(file){if(!file)return;const fd=new FormData();fd.append('file',file);$('#up').innerHTML='Uploading…';
+try{const d=await api('/api/upload',{method:'POST',body:fd});
+$('#up').innerHTML=`<div class="kv"><div>Rows<b>${d.rows}</b></div><div>From<b>${d.start}</b></div><div>To<b>${d.end}</b></div><div>Mean<b>${d.mean}</b></div><div>Max<b>${f1(d.max)}</b></div></div>`}catch(e){err('#up',e)}}
+let timer;async function poll(){const s=await api('/api/model/status');const t=s.epochs?s.epoch/s.epochs*100:0;
+$('#pb').style.width=(s.status=='done'?100:t)+'%';
+if(s.status=='running'){$('#ms').textContent=`Training… epoch ${s.epoch}/${s.epochs}`;timer=setTimeout(poll,1500)}
+else if(s.status=='done'){$('#train').disabled=false;$('#ms').innerHTML=`✅ Model trained — test RMSE <b>${s.metrics.test_rmse}</b>, MAE <b>${s.metrics.test_mae}</b> µg/m³ (n=${s.metrics.test_n})`}
+else if(s.status=='error'){$('#train').disabled=false;$('#ms').innerHTML=`<span class="err">⚠ ${s.error}</span>`}
+else $('#ms').textContent=s.model_ready?'A saved model is available.':''}
+$('#train').onclick=async()=>{try{$('#train').disabled=true;await api(`/api/model/train?epochs=${$('#ep').value}&look_back=${$('#lb').value}`,{method:'POST'});poll()}catch(e){$('#train').disabled=false;$('#ms').innerHTML=`<span class="err">⚠ ${e.message}</span>`}};poll();
+$('#b3').onclick=async()=>{try{const d=await api('/api/predictions');
+$('#pr').innerHTML=`<table><tr><th>Day</th><th>Date</th><th>Forecast</th><th>95% CI</th><th>SD</th></tr>${d.map(r=>`<tr><td>${r.Day}</td><td>${r.Date}</td><td><b>${f1(r.Forecast)}</b> µg/m³</td><td>${f1(r.Lower_95)} – ${f1(r.Upper_95)}</td><td>${f1(r.SD)}</td></tr>`).join('')}</table>`}catch(e){err('#pr',e)}};
+$('#b4').onclick=async()=>{try{const d=await api('/api/classification');
+$('#cl').innerHTML=`<table><tr><th>Day</th><th>Forecast</th><th>Lower 95</th><th>Upper 95</th></tr>${d.map(r=>`<tr><td>${r.Day}</td><td>${badge(r.Level_Forecast,r.Class_Forecast)}</td><td>${badge(r.Level_Lower_95,r.Class_Lower_95)}</td><td>${badge(r.Level_Upper_95,r.Class_Upper_95)}</td></tr>`).join('')}</table>`}catch(e){err('#cl',e)}};
+$('#b5').onclick=async()=>{try{const d=await api('/api/risk');
+$('#rk').innerHTML=`<table><tr><th>Day</th><th>Outcome</th><th>RR</th><th>Attrib. fraction</th></tr>${d.map(r=>`<tr><td>${r.Day}</td><td>${r.Outcome}</td><td>${r.RR_obs.toFixed(4)} <small class="mut">(${r.RR_obs_low.toFixed(4)}–${r.RR_obs_high.toFixed(4)})</small></td><td>${r.FA_pct.toFixed(2)}% <small class="mut">(${r.FA_pct_low.toFixed(2)}–${r.FA_pct_high.toFixed(2)})</small></td></tr>`).join('')}</table>`+
+d.map(r=>`<div class="msg"><b>${r.Day} · ${r.Message_ID} (${r.Outcome})</b><br>${r.Message}</div>`).join('')}catch(e){err('#rk',e)}};
+</script></body></html>
